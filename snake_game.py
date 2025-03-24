@@ -3,6 +3,9 @@ import random
 import sys
 import math
 import os
+import colorsys
+import time
+from pygame import gfxdraw
 
 # Initialize Pygame
 pygame.init()
@@ -13,57 +16,101 @@ pygame.mixer.init(44100, -16, 2, 2048)  # Increased buffer size for better sound
 pygame.mixer.set_num_channels(8)  # Ensure we have enough channels
 
 # Initialize global sound variables
-SOUND_ENABLED = False  # Initialize to False by default
-SOUNDS = {}
 SOUND_ENABLED = True
+SOUNDS = {}
 
-# Load sound files
-sound_files = {
-    'background': 'assets/background.wav',
-    'evolve': 'assets/evolve.wav',
-    'eat': 'assets/eat.wav',
-    'ice': 'assets/ice.wav',
-    'menu': 'assets/menu.wav',
-    'die': 'assets/die.wav'
-}
-
-try:
-    for sound_name, file_path in sound_files.items():
-        if not os.path.exists(file_path):
-            continue
-        try:
-            sound = pygame.mixer.Sound(file_path)
-            SOUNDS[sound_name] = sound
-        except Exception:
+# Initialize sounds
+def initialize_sounds():
+    global SOUND_ENABLED, SOUNDS
+    try:
+        # Create assets directory if it doesn't exist
+        if not os.path.exists("assets"):
+            os.makedirs("assets")
+            
+        # Load sounds if they exist, otherwise create empty dictionary
+        sound_files = {
+            'eat': 'assets/eat.wav',
+            'die': 'assets/die.wav',
+            'menu': 'assets/menu.wav',
+            'evolve': 'assets/evolve.wav',
+            'portal': 'assets/portal.wav',
+            'background': 'assets/background.wav',
+            'poison': 'assets/poison.wav',
+            'ice': 'assets/ice.wav',
+            'start': 'assets/start.wav'
+        }
+        
+        for sound_name, sound_path in sound_files.items():
+            if os.path.exists(sound_path):
+                SOUNDS[sound_name] = pygame.mixer.Sound(sound_path)
+            else:
+                print(f"Sound file {sound_path} not found")
+                
+        if not SOUNDS:
+            print("No sound files found, disabling sound")
             SOUND_ENABLED = False
-            break
-
-    if len(SOUNDS) < len(sound_files):
+            
+    except Exception as e:
+        print(f"Error initializing sounds: {e}")
         SOUND_ENABLED = False
 
-except Exception:
-    SOUNDS = {}
-    SOUND_ENABLED = False
-
 # Constants
-WINDOW_SIZE = 800
-GRID_SIZE = 30
+WINDOW_SIZE = 720
+GRID_SIZE = 20
 GRID_COUNT = WINDOW_SIZE // GRID_SIZE
 
 # Colors
+BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
-BACKGROUND_COLOR = (255, 255, 255)  # White background
+GREEN = (0, 255, 0)
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+GRAY = (128, 128, 128)
+MENU_BG_COLOR = (245, 245, 245)  # Light gray like Google
+SCORE_COLOR = (95, 99, 104)  # Google grey
 SNAKE_COLOR = (24, 128, 56)  # Google green
 SNAKE_HEAD_COLOR = (21, 115, 50)  # Slightly darker green
 FOOD_COLOR = (220, 53, 34)  # Google red
+BUTTON_COLOR = (26, 115, 232)  # Google blue
+BUTTON_HOVER_COLOR = (66, 133, 244)  # Lighter blue when hovering
+BUTTON_TEXT_COLOR = (255, 255, 255)  # White text
+
+# Screen dimensions
+SCREEN_WIDTH = WINDOW_SIZE
+SCREEN_HEIGHT = WINDOW_SIZE
+
+# Frame rate
+FPS = 10
+
+# Fruits dictionary with colors and point values
+FRUITS = {
+    'apple': {'color': (255, 0, 0), 'points': 1},
+    'orange': {'color': (255, 165, 0), 'points': 1},
+    'banana': {'color': (255, 255, 0), 'points': 1},
+    'berry': {'color': (138, 43, 226), 'points': 3},
+    'kiwi': {'color': (75, 160, 0), 'points': 2},
+    'ice_cream': {'color': (200, 200, 255), 'points': 2},
+    'poison': {'color': (0, 255, 0), 'points': -2}
+}
+
+# Game settings with defaults
+GAME_SETTINGS = {
+    'reverse_controls': False,
+    'ghost_mode': False,
+    'maze_mode': False,
+    'rainbow_snake': False,
+    'big_food': False,
+    'portal_mode': False,
+    'wrap_around': True,
+    'double_food': False,
+    'infinite_length': False,
+    'speed_increase': False
+}
+
+# Constants
 GRID_COLOR = (240, 240, 240)  # Light grey for grid
-SCORE_COLOR = (95, 99, 104)  # Google grey
 
 # Add new constants
-MENU_BG_COLOR = (245, 245, 245)
-BUTTON_COLOR = (26, 115, 232)
-BUTTON_HOVER_COLOR = (66, 133, 244)
-BUTTON_TEXT_COLOR = WHITE
 PARTICLE_COLORS = {
     'apple': [(255, 99, 71), (255, 69, 0)],
     'banana': [(255, 215, 0), (255, 193, 7)],
@@ -72,17 +119,6 @@ PARTICLE_COLORS = {
     'kiwi': [(139, 195, 74), (119, 175, 54)],
     'poison': [(58, 66, 71), (38, 46, 51)],
     'ice_cream': [(240, 248, 255), (230, 230, 250)]
-}
-
-# Add new constants
-FRUITS = {
-    'apple': {'color': (220, 53, 34), 'points': 1},      # Red apple
-    'banana': {'color': (255, 193, 7), 'points': 2},     # Yellow banana
-    'orange': {'color': (255, 152, 0), 'points': 3},     # Orange
-    'berry': {'color': (156, 39, 176), 'points': 5},     # Purple berry
-    'kiwi': {'color': (139, 195, 74), 'points': 4},      # Green kiwi
-    'poison': {'color': (58, 66, 71), 'points': -3},     # Dark grey poison
-    'ice_cream': {'color': (240, 248, 255), 'points': 6, 'speed_effect': 0.5}  # Special dragon evolution reward
 }
 
 # Update evolution stages with more detailed appearances
@@ -134,13 +170,16 @@ screen = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
 pygame.display.set_caption('Snake Game')
 clock = pygame.time.Clock()
 
-def draw_gradient_background():
-    # Replace gradient with clean white background and subtle grid
-    screen.fill(BACKGROUND_COLOR)
+def draw_gradient_background(surface):
+    # Fill with white background
+    surface.fill(WHITE)
+    
     # Draw subtle grid lines
     for i in range(0, WINDOW_SIZE, GRID_SIZE):
-        pygame.draw.line(screen, GRID_COLOR, (i, 0), (i, WINDOW_SIZE))
-        pygame.draw.line(screen, GRID_COLOR, (0, i), (WINDOW_SIZE, i))
+        # Draw vertical lines
+        pygame.draw.line(surface, GRID_COLOR, (i, 0), (i, WINDOW_SIZE))
+        # Draw horizontal lines
+        pygame.draw.line(surface, GRID_COLOR, (0, i), (WINDOW_SIZE, i))
 
 def draw_rounded_rectangle(surface, color, rect, radius):
     x, y, width, height = rect
@@ -152,26 +191,38 @@ def draw_rounded_rectangle(surface, color, rect, radius):
     pygame.draw.circle(surface, color, (x + width - radius, y + height - radius), radius)
 
 class Snake:
-    def __init__(self):
+    def __init__(self, game):
+        self.game = game  # Store the game reference
         self.length = 1
-        self.positions = [(GRID_COUNT // 2, GRID_COUNT // 2)]
-        self.direction = (1, 0)  # Start moving right
-        self.color = SNAKE_COLOR
-        self.head_color = SNAKE_HEAD_COLOR  # Initialize head_color
+        self.positions = [((GRID_COUNT // 2), (GRID_COUNT // 2))]
+        self.direction = (1, 0)  # Initially move right
+        self.color = (24, 128, 56)  # Google green
+        self.head_color = (21, 115, 50)  # Slightly darker green
+        self.growth_pending = 0
+        self.speed_multiplier = 1.0
+        self.speed_effect_timer = 0
+        self.speed_reduction_timer = 0
+        self.rainbow_offset = 0
+        self.evolution_stage = 0
         self.score = 0
         self.radius = GRID_SIZE // 2 - 1
         self.speed = 1  # Grid cells per update
         self.glow_factor = 0
         self.glow_increasing = True
-        self.growth_pending = 0  # For smoother growth animation
-        self.evolution_stage = 0
-        self.speed_reduction_timer = 0  # Timer for ice cream speed reduction effect
         self.update_colors()  # This will set both color and head_color based on initial stage
 
     def get_head_position(self):
         return self.positions[0]
 
     def update(self):
+        # Handle rainbow snake setting
+        if GAME_SETTINGS['rainbow_snake']:
+            self.rainbow_offset = (self.rainbow_offset + 1) % 360
+            h = (self.rainbow_offset / 360)
+            r, g, b = colorsys.hsv_to_rgb(h, 1.0, 1.0)
+            self.color = (int(r * 255), int(g * 255), int(b * 255))
+            self.head_color = (int(r * 200), int(g * 200), int(b * 200))  # Slightly darker head
+        
         # Update speed reduction timer
         if self.speed_reduction_timer > 0:
             self.speed_reduction_timer -= 1
@@ -182,12 +233,28 @@ class Snake:
         x, y = self.direction
         new = ((cur[0] + x) % GRID_COUNT, (cur[1] + y) % GRID_COUNT)
         
-        if new in self.positions[3:]:
+        # Handle wall collision if wrap around is disabled
+        if not GAME_SETTINGS['wrap_around']:
+            if new[0] < 0 or new[0] >= GRID_COUNT or new[1] < 0 or new[1] >= GRID_COUNT:
+                return False
+        
+        # Check for collision with maze walls
+        if hasattr(self.game, 'maze_walls') and new in self.game.maze_walls:
+            return False
+        
+        # Check for self collision (unless ghost mode is enabled)
+        if not GAME_SETTINGS['ghost_mode'] and new in self.positions[3:]:
             return False
             
         self.positions.insert(0, new)
-        if len(self.positions) > self.length:
-            self.positions.pop()
+        
+        # Handle infinite length setting
+        if GAME_SETTINGS['infinite_length']:
+            if len(self.positions) > 3:  # Keep minimum length of 3
+                self.positions.pop()
+        else:
+            if len(self.positions) > self.length:
+                self.positions.pop()
 
         if self.growth_pending > 0:
             self.length += 1
@@ -228,175 +295,55 @@ class Snake:
         self.head_color = stage_colors['head_color']
         #print(f"New colors - Body: {self.color}, Head: {self.head_color}")  # Debug color change
 
-    def render(self, surface):
-        self.update_colors()
-        
-        # Draw snake body segments with accumulated patterns
-        for i, p in enumerate(self.positions[1:], 1):
-            x = p[0] * GRID_SIZE
-            y = p[1] * GRID_SIZE
-            rect = (x + 1, y + 1, GRID_SIZE - 2, GRID_SIZE - 2)
-            
-            # Draw base segment
-            draw_rounded_rectangle(surface, self.color, rect, 4)
-            
-            # Add all patterns based on evolution stage
-            patterns = EVOLUTION_STAGES[self.evolution_stage]['patterns']
-            for pattern in patterns:
-                if pattern == 'scales':
-                    scale_color = (max(0, self.color[0]-30), max(0, self.color[1]-30), max(0, self.color[2]-30))
-                    for dx in [-2, 2]:
-                        for dy in [-2, 2]:
-                            pygame.draw.circle(surface, scale_color, 
-                                            (x + GRID_SIZE//2 + dx, y + GRID_SIZE//2 + dy), 2)
-                
-                elif pattern == 'fire':
-                    # Draw flame effect
-                    flame_colors = [(255, 69, 0), (255, 140, 0), (255, 215, 0)]  # Red, Orange, Yellow
-                    flame_offset = math.sin(pygame.time.get_ticks() * 0.01 + i * 0.5) * 2  # Animated flame
-                    
-                    # Get the snake's direction
-                    direction = self.direction if i == 0 else (0, 0)
-                    dx, dy = direction
-                    
-                    for j, flame_color in enumerate(flame_colors):
-                        if dx != 0:  # Moving horizontally
-                            # Draw flames on both sides
-                            flame_points_top = [
-                                (x + GRID_SIZE//2, y - 3 - j*2 + flame_offset),
-                                (x + GRID_SIZE//2 - 3, y + 1 - j*2 + flame_offset),
-                                (x + GRID_SIZE//2 + 3, y + 1 - j*2 + flame_offset),
-                            ]
-                            flame_points_bottom = [
-                                (x + GRID_SIZE//2, y + GRID_SIZE + 3 + j*2 - flame_offset),
-                                (x + GRID_SIZE//2 - 3, y + GRID_SIZE - 1 + j*2 - flame_offset),
-                                (x + GRID_SIZE//2 + 3, y + GRID_SIZE - 1 + j*2 - flame_offset),
-                            ]
-                            pygame.draw.polygon(surface, flame_color, flame_points_top)
-                            pygame.draw.polygon(surface, flame_color, flame_points_bottom)
-                        else:  # Moving vertically or not moving
-                            flame_points = [
-                                (x + GRID_SIZE//2, y - 2 - j*2 + flame_offset),
-                                (x + GRID_SIZE//2 - 3, y + 2 - j*2 + flame_offset),
-                                (x + GRID_SIZE//2 + 3, y + 2 - j*2 + flame_offset),
-                            ]
-                            pygame.draw.polygon(surface, flame_color, flame_points)
-                
-                elif pattern == 'golden_scales':
-                    highlight = (255, 223, 0)
-                    shadow = (160, 120, 0)
-                    for dx in [-3, 0, 3]:
-                        pygame.draw.circle(surface, highlight, 
-                                        (x + GRID_SIZE//2 + dx, y + GRID_SIZE//2), 2)
-                        pygame.draw.circle(surface, shadow, 
-                                        (x + GRID_SIZE//2 + dx, y + GRID_SIZE//2 + 2), 2)
-                
-                elif pattern == 'textile':
-                    pattern_color = (max(0, self.color[0]-20), max(0, self.color[1]-20), max(0, self.color[2]-20))
-                    for dx in range(2, GRID_SIZE-2, 4):
-                        pygame.draw.line(surface, pattern_color,
-                                       (x + dx, y + 2),
-                                       (x + dx, y + GRID_SIZE - 2), 1)
-                
-                elif pattern == 'wings':
-                    if i % 4 == 0:
-                        wing_color = (255, 223, 0)
-                        wing_points = [
-                            (x - 4, y + GRID_SIZE//2),
-                            (x - 8, y + 2),
-                            (x - 4, y + GRID_SIZE - 2)
-                        ]
-                        pygame.draw.polygon(surface, wing_color, wing_points)
-                        wing_points = [
-                            (x + GRID_SIZE + 4, y + GRID_SIZE//2),
-                            (x + GRID_SIZE + 8, y + 2),
-                            (x + GRID_SIZE + 4, y + GRID_SIZE - 2)
-                        ]
-                        pygame.draw.polygon(surface, wing_color, wing_points)
-                
-                elif pattern == 'feet':
-                    if i % 6 == 0:
-                        foot_color = (95, 158, 160)
-                        pygame.draw.circle(surface, foot_color,
-                                        (x + GRID_SIZE//2 - 6, y + GRID_SIZE + 2), 3)
-                        pygame.draw.circle(surface, foot_color,
-                                        (x + GRID_SIZE//2 + 6, y + GRID_SIZE + 2), 3)
-                
-                elif pattern == 'dragon':
-                    spike_color = (139, 0, 0)
-                    for dx in [-4, 0, 4]:
-                        pygame.draw.polygon(surface, spike_color, [
-                            (x + GRID_SIZE//2 + dx, y - 2),
-                            (x + GRID_SIZE//2 + dx - 2, y + 4),
-                            (x + GRID_SIZE//2 + dx + 2, y + 4)
-                        ])
-                    scale_color = (178, 34, 34)
-                    for dx in [-2, 2]:
-                        for dy in [-2, 2]:
-                            pygame.draw.circle(surface, scale_color,
-                                            (x + GRID_SIZE//2 + dx, y + GRID_SIZE//2 + dy), 2)
+    def render(self, screen):
+        # Draw snake body
+        for i, pos in enumerate(self.positions):
+            x = pos[0] * GRID_SIZE
+            y = pos[1] * GRID_SIZE
+            color = self.head_color if i == 0 else self.color
 
-        # Draw enhanced dragon head
-        head = self.positions[0]
-        head_x = head[0] * GRID_SIZE
-        head_y = head[1] * GRID_SIZE
+            # Draw snake segment with rounded corners if not the head
+            if i == 0:
+                # Head is a rounded rectangle
+                draw_rounded_rectangle(screen, color, (x, y, GRID_SIZE, GRID_SIZE), 4)
+            else:
+                # Body segments are rounded rectangles
+                draw_rounded_rectangle(screen, color, (x, y, GRID_SIZE, GRID_SIZE), 4)
 
-        # Special dragon head rendering when fully evolved
-        if self.evolution_stage >= 45:  # Dragon form
-            # Determine head direction and orientation
-            if self.direction == (1, 0):  # RIGHT
-                self.draw_dragon_head(surface, head_x, head_y, 0)
-            elif self.direction == (-1, 0):  # LEFT
-                self.draw_dragon_head(surface, head_x, head_y, 180)
-            elif self.direction == (0, -1):  # UP
-                self.draw_dragon_head(surface, head_x, head_y, 270)
-            else:  # DOWN
-                self.draw_dragon_head(surface, head_x, head_y, 90)
-        else:
-            # Regular head rendering for other evolution stages
-            head_rect = (head_x + 1, head_y + 1, GRID_SIZE - 2, GRID_SIZE - 2)
-            draw_rounded_rectangle(surface, self.head_color, head_rect, 4)
+            # Draw eyes only for head
+            if i == 0:
+                # Draw Google-style eyes (bigger white circles with smaller black pupils)
+                eye_radius = 4
+                pupil_radius = 2
+                eye_offset = 7
+                
+                # Draw eyes based on direction
+                if self.direction == (0, -1):  # Up
+                    left_eye_pos = (x + eye_offset, y + eye_offset)
+                    right_eye_pos = (x + GRID_SIZE - eye_offset, y + eye_offset)
+                elif self.direction == (0, 1):  # Down
+                    left_eye_pos = (x + eye_offset, y + GRID_SIZE - eye_offset)
+                    right_eye_pos = (x + GRID_SIZE - eye_offset, y + GRID_SIZE - eye_offset)
+                elif self.direction == (-1, 0):  # Left
+                    left_eye_pos = (x + eye_offset, y + eye_offset)
+                    right_eye_pos = (x + eye_offset, y + GRID_SIZE - eye_offset)
+                else:  # Right (default)
+                    left_eye_pos = (x + GRID_SIZE - eye_offset, y + eye_offset)
+                    right_eye_pos = (x + GRID_SIZE - eye_offset, y + GRID_SIZE - eye_offset)
+                
+                # Draw the eyes
+                pygame.draw.circle(screen, WHITE, left_eye_pos, eye_radius)
+                pygame.draw.circle(screen, WHITE, right_eye_pos, eye_radius)
+                
+                # Draw pupils
+                pygame.draw.circle(screen, BLACK, left_eye_pos, pupil_radius)
+                pygame.draw.circle(screen, BLACK, right_eye_pos, pupil_radius)
 
-        # Enhanced head features based on evolution
-        if self.evolution_stage >= 40:  # Add horns for advanced stages
-            horn_color = (139, 0, 0) if self.evolution_stage >= 60 else (218, 165, 32)
-            pygame.draw.polygon(surface, horn_color, [
-                (head_x + 2, head_y),
-                (head_x + 6, head_y - 4),
-                (head_x + 4, head_y + 2)
-            ])
-            pygame.draw.polygon(surface, horn_color, [
-                (head_x + GRID_SIZE - 2, head_y),
-                (head_x + GRID_SIZE - 6, head_y - 4),
-                (head_x + GRID_SIZE - 4, head_y + 2)
-            ])
-
-        # Draw eyes with glow effect for higher stages
-        eye_radius = 2
-        eye_color = WHITE if self.evolution_stage < 60 else (255, 0, 0)  # Red eyes for dragon
-        
-        if self.direction == (1, 0):  # RIGHT
-            left_eye_pos = (head_x + GRID_SIZE - 6, head_y + 7)
-            right_eye_pos = (head_x + GRID_SIZE - 6, head_y + GRID_SIZE - 7)
-        elif self.direction == (-1, 0):  # LEFT
-            left_eye_pos = (head_x + 6, head_y + 7)
-            right_eye_pos = (head_x + 6, head_y + GRID_SIZE - 7)
-        elif self.direction == (0, -1):  # UP
-            left_eye_pos = (head_x + 7, head_y + 6)
-            right_eye_pos = (head_x + GRID_SIZE - 7, head_y + 6)
-        else:  # DOWN
-            left_eye_pos = (head_x + 7, head_y + GRID_SIZE - 6)
-            right_eye_pos = (head_x + GRID_SIZE - 7, head_y + GRID_SIZE - 6)
-
-        # Draw glowing eyes for advanced stages
-        if self.evolution_stage >= 30:
-            glow_radius = eye_radius + 1
-            glow_color = (255, 255, 150) if self.evolution_stage < 60 else (255, 100, 100)
-            pygame.draw.circle(surface, glow_color, left_eye_pos, glow_radius)
-            pygame.draw.circle(surface, glow_color, right_eye_pos, glow_radius)
-
-        pygame.draw.circle(surface, eye_color, left_eye_pos, eye_radius)
-        pygame.draw.circle(surface, eye_color, right_eye_pos, eye_radius)
+            # Draw ghost effect if enabled
+            if GAME_SETTINGS['ghost_mode'] and i > 0:
+                ghost_surface = pygame.Surface((GRID_SIZE, GRID_SIZE), pygame.SRCALPHA)
+                ghost_surface.fill((255, 255, 255, 128))  # Semi-transparent white
+                screen.blit(ghost_surface, (x, y))
 
     def draw_dragon_head(self, surface, x, y, angle):
         # Enhanced colors
@@ -529,57 +476,68 @@ class Food:
     def __init__(self, game):
         self.game = game
         self.positions = []  # List of (position, fruit_type) tuples
-        self.poison_timer = 0
-        self.poison_duration = 100  # Duration in frames (10 seconds at normal speed)
         self.radius = GRID_SIZE // 2 - 2
         self.randomize()
 
     def randomize(self):
-        # Remove poison if it exists
-        self.positions = [pos for pos in self.positions if pos[1] != 'poison']
+        # Clear existing food
+        self.positions = []
         
-        # Always ensure at least one regular food exists
-        if not self.positions:
+        # Add initial food
+        self.add_food('apple')
+        
+        # Add second food if double food is enabled
+        if GAME_SETTINGS['double_food']:
             self.add_food('apple')
-
-        # 25% chance to spawn poison (increased from 10%)
-        if random.random() < 0.25:
-            self.add_food('poison')
-            self.poison_timer = self.poison_duration
 
     def add_food(self, fruit_type):
         # Find valid position not on snake or other food
-        while True:
+        attempts = 0
+        while attempts < 100:  # Limit attempts to prevent infinite loop
+            # Generate random position
             new_pos = (random.randint(0, GRID_COUNT-1), random.randint(0, GRID_COUNT-1))
-            if (new_pos not in self.game.snake.positions and 
-                new_pos not in [p[0] for p in self.positions]):
-                break
+            
+            # Check for collision with snake
+            if new_pos in self.game.snake.positions:
+                attempts += 1
+                continue
+                
+            # Check for collision with other food
+            if new_pos in [p[0] for p in self.positions]:
+                attempts += 1
+                continue
+            
+            # Valid position found
+            break
         
-        if fruit_type == 'poison':
-            self.positions.append((new_pos, 'poison'))
-        else:
-            # Weighted random choice for regular fruits including ice cream
-            weights = [0.35, 0.15, 0.15, 0.1, 0.1, 0.15]  # Including ice cream
-            fruit_type = random.choices(
-                ['apple', 'banana', 'orange', 'berry', 'kiwi', 'ice_cream'], 
-                weights=weights
-            )[0]
-            self.positions.append((new_pos, fruit_type))
+        # If no valid position found after max attempts, don't add food
+        if attempts >= 100:
+            return
+            
+        # Determine fruit type
+        if fruit_type == 'apple':
+            # Select random fruit type
+            fruit_types = ['apple', 'banana', 'orange', 'berry', 'kiwi']
+            selected_type = random.choice(fruit_types)
+            self.positions.append((new_pos, selected_type))
 
     def update(self):
-        # Update poison timer
-        if any(fruit_type == 'poison' for _, fruit_type in self.positions):
-            self.poison_timer -= 1
-            if self.poison_timer <= 0:
-                # Remove poison
-                self.positions = [pos for pos in self.positions if pos[1] != 'poison']
+        # Make sure we always have at least one food
+        if not self.positions:
+            self.add_food('apple')
+            
+        # Make sure we have two foods if double food is enabled
+        if GAME_SETTINGS['double_food'] and len(self.positions) < 2:
+            self.add_food('apple')
 
     def render(self, surface):
         for position, fruit_type in self.positions:
             x = position[0] * GRID_SIZE + GRID_SIZE // 2
             y = position[1] * GRID_SIZE + GRID_SIZE // 2
-            fruit_color = FRUITS[fruit_type]['color']
-
+            
+            # Get fruit color from FRUITS dictionary
+            fruit_color = FRUITS.get(fruit_type, {'color': FOOD_COLOR})['color']
+            
             if fruit_type == 'apple':
                 # Improved apple with gradient and better shine
                 darker_color = (max(0, fruit_color[0]-40), max(0, fruit_color[1]-40), max(0, fruit_color[2]-40))
@@ -589,27 +547,20 @@ class Food:
                 pygame.draw.circle(surface, darker_color, (x, y+2), self.radius-1)
                 # Top shine
                 shine_pos = (x - self.radius//3, y - self.radius//3)
-                pygame.draw.ellipse(surface, (255, 255, 255, 180), 
-                                  (shine_pos[0]-2, shine_pos[1]-1, 5, 3))
+                pygame.draw.circle(surface, (255, 255, 255), shine_pos, 2)
                 # Stem
                 stem_start = (x, y - self.radius + 1)
                 stem_end = (x + 2, y - self.radius - 3)
                 pygame.draw.line(surface, (83, 40, 30), stem_start, stem_end, 2)
-                # Leaf with gradient
+                # Leaf
                 leaf_points = [(x + 2, y - self.radius - 2),
-                             (x + 7, y - self.radius - 4),
-                             (x + 4, y - self.radius)]
+                              (x + 7, y - self.radius - 4),
+                              (x + 4, y - self.radius)]
                 pygame.draw.polygon(surface, (67, 160, 71), leaf_points)
-                pygame.draw.polygon(surface, (45, 136, 45), 
-                                  [(x + 2, y - self.radius - 2),
-                                   (x + 5, y - self.radius - 3),
-                                   (x + 4, y - self.radius)])
-
+                
             elif fruit_type == 'banana':
                 # Improved banana with better curve and gradient
                 lighter_color = (min(255, fruit_color[0]+40), min(255, fruit_color[1]+40), min(255, fruit_color[2]+40))
-                darker_color = (max(0, fruit_color[0]-40), max(0, fruit_color[1]-40), max(0, fruit_color[2]-40))
-                
                 # Main banana shape
                 points = [
                     (x - 8, y + 2),
@@ -620,94 +571,37 @@ class Food:
                     (x - 2, y + 6),
                 ]
                 pygame.draw.polygon(surface, fruit_color, points)
-                # Gradient effect
-                pygame.draw.line(surface, lighter_color, (x - 4, y - 2), (x + 4, y + 2), 3)
-                # Edges
-                pygame.draw.lines(surface, darker_color, True, points, 1)
-
+                # Highlight
+                pygame.draw.line(surface, lighter_color, (x - 4, y - 2), (x + 4, y + 2), 2)
+                
             elif fruit_type == 'orange':
-                # Improved orange with better texture and gradient
-                lighter_color = (min(255, fruit_color[0]+40), min(255, fruit_color[1]+40), min(255, fruit_color[2]+40))
-                
-                # Main orange body
+                # Improved orange with segments
                 pygame.draw.circle(surface, fruit_color, (x, y), self.radius)
-                # Texture pattern
-                for angle in range(0, 360, 30):
+                # Add texture/segments - ensure colors are valid
+                segment_color = (max(0, min(255, fruit_color[0]-20)), 
+                               max(0, min(255, fruit_color[1]-20)), 
+                               max(0, min(255, fruit_color[2]-20)))
+                for angle in range(0, 360, 60):
                     rad = math.radians(angle)
-                    length = self.radius - 2
-                    dot_x = x + math.cos(rad) * length
-                    dot_y = y + math.sin(rad) * length
-                    pygame.draw.circle(surface, lighter_color, (dot_x, dot_y), 1)
-                # Shine
-                shine_pos = (x - self.radius//3, y - self.radius//3)
-                pygame.draw.ellipse(surface, (255, 255, 255, 180), 
-                                  (shine_pos[0]-2, shine_pos[1]-1, 5, 3))
-
+                    end_x = x + math.cos(rad) * (self.radius - 1)
+                    end_y = y + math.sin(rad) * (self.radius - 1)
+                    pygame.draw.line(surface, segment_color, (x, y), (end_x, end_y), 1)
+                
             elif fruit_type == 'berry':
-                # Improved berry cluster with better shading
-                positions = [(0, 0), (-3, -3), (3, -3), (-2, 2), (2, 2)]
-                darker_color = (max(0, fruit_color[0]-40), max(0, fruit_color[1]-40), max(0, fruit_color[2]-40))
+                # Draw berry as a cluster of small circles
+                berry_size = self.radius - 2
+                for dx, dy in [(0, 0), (-2, -2), (2, -2), (-2, 2), (2, 2)]:
+                    pygame.draw.circle(surface, fruit_color, (x + dx, y + dy), berry_size)
                 
-                # Draw berries with shading
-                for dx, dy in positions:
-                    pygame.draw.circle(surface, fruit_color, (x + dx, y + dy), self.radius - 2)
-                    pygame.draw.circle(surface, darker_color, (x + dx, y + dy + 1), self.radius - 3)
-                    # Add shine to each berry
-                    shine_x = x + dx - 1
-                    shine_y = y + dy - 1
-                    pygame.draw.circle(surface, (255, 255, 255, 180), (shine_x, shine_y), 1)
-
             elif fruit_type == 'kiwi':
-                # Improved kiwi with better texture and gradient
-                darker_color = (max(0, fruit_color[0]-40), max(0, fruit_color[1]-40), max(0, fruit_color[2]-40))
-                
-                # Main kiwi body
+                # Kiwi as a green circle with seeds
                 pygame.draw.circle(surface, fruit_color, (x, y), self.radius)
-                pygame.draw.circle(surface, darker_color, (x, y+1), self.radius-1)
-                
-                # Add more detailed seed pattern
+                # Add seeds
                 for _ in range(8):
-                    seed_x = x + random.randint(-self.radius+3, self.radius-3)
-                    seed_y = y + random.randint(-self.radius+3, self.radius-3)
-                    # Draw seed with shadow
-                    pygame.draw.circle(surface, (0, 0, 0), (seed_x+1, seed_y+1), 1)
-                    pygame.draw.circle(surface, (20, 20, 20), (seed_x, seed_y), 1)
-
-            elif fruit_type == 'poison':
-                # Improved poison bottle with better shading
-                darker_color = (max(0, fruit_color[0]-40), max(0, fruit_color[1]-40), max(0, fruit_color[2]-40))
-                
-                # Draw timer bar for poison
-                if self.poison_timer > 0:
-                    timer_width = (self.poison_timer / self.poison_duration) * GRID_SIZE
-                    timer_rect = pygame.Rect(x - GRID_SIZE//2, y - GRID_SIZE, timer_width, 2)
-                    pygame.draw.rect(surface, (255, 0, 0), timer_rect)
-                
-                # Bottle body with gradient
-                bottle_points = [
-                    (x - 6, y + 6),
-                    (x - 6, y - 2),
-                    (x - 4, y - 4),
-                    (x + 4, y - 4),
-                    (x + 6, y - 2),
-                    (x + 6, y + 6),
-                ]
-                pygame.draw.polygon(surface, fruit_color, bottle_points)
-                pygame.draw.polygon(surface, darker_color, 
-                                  [(p[0], p[1]+1) for p in bottle_points])
-                
-                # Bottle neck with gradient
-                pygame.draw.rect(surface, fruit_color, (x - 2, y - 6, 4, 3))
-                pygame.draw.rect(surface, darker_color, (x - 2, y - 5, 4, 2))
-                
-                # Improved skull symbol
-                pygame.draw.circle(surface, (255, 255, 255), (x, y), 3)
-                pygame.draw.circle(surface, (255, 255, 255), (x - 2, y - 1), 1)
-                pygame.draw.circle(surface, (255, 255, 255), (x + 2, y - 1), 1)
-                # Add crossbones
-                pygame.draw.line(surface, (255, 255, 255), (x - 3, y + 3), (x + 3, y + 5), 1)
-                pygame.draw.line(surface, (255, 255, 255), (x + 3, y + 3), (x - 3, y + 5), 1)
-
+                    seed_x = x + random.randint(-self.radius//2, self.radius//2)
+                    seed_y = y + random.randint(-self.radius//2, self.radius//2)
+                    pygame.draw.circle(surface, (0, 0, 0), (seed_x, seed_y), 1)
+                    
             elif fruit_type == 'ice_cream':
                 # Draw ice cream cone
                 cone_color = (210, 180, 140)  # Tan color for cone
@@ -716,410 +610,504 @@ class Food:
                 # Draw cone
                 cone_points = [
                     (x, y + self.radius),
-                    (x - self.radius, y - self.radius),
-                    (x + self.radius, y - self.radius)
+                    (x - self.radius, y - self.radius//2),
+                    (x + self.radius, y - self.radius//2)
                 ]
                 pygame.draw.polygon(surface, cone_color, cone_points)
                 
-                # Draw ice cream scoops
-                pygame.draw.circle(surface, ice_color, (x, y - self.radius), self.radius)
-                pygame.draw.circle(surface, (255, 255, 255), 
-                                (x - 2, y - self.radius - 2), self.radius // 3)  # Highlight
+                # Draw ice cream scoop
+                pygame.draw.circle(surface, ice_color, (x, y - self.radius//2), self.radius)
+                
+            elif fruit_type == 'poison':
+                # Draw poison as a skull
+                pygame.draw.circle(surface, fruit_color, (x, y), self.radius)
+                # Draw skull eyes
+                eye_size = self.radius // 3
+                pygame.draw.circle(surface, (255, 255, 255), (x - eye_size, y - eye_size), eye_size)
+                pygame.draw.circle(surface, (255, 255, 255), (x + eye_size, y - eye_size), eye_size)
+                # Draw skull mouth
+                pygame.draw.rect(surface, (255, 255, 255), (x - eye_size, y + eye_size - 1, eye_size*2, eye_size))
+                # Draw teeth
+                pygame.draw.line(surface, fruit_color, (x - eye_size//2, y + eye_size - 1), 
+                               (x - eye_size//2, y + eye_size*2 - 1), 1)
+                pygame.draw.line(surface, fruit_color, (x + eye_size//2, y + eye_size - 1), 
+                               (x + eye_size//2, y + eye_size*2 - 1), 1)
+            else:
+                # Default circular food
+                pygame.draw.circle(surface, fruit_color, (x, y), self.radius)
 
 class Particle:
-    def __init__(self, x, y, color):
+    def __init__(self, x, y, color=(255, 255, 255), velocity=None, lifetime=30, size=3):
         self.x = x
         self.y = y
         self.color = color
-        self.velocity = (random.uniform(-2, 2), random.uniform(-2, 2))
-        self.lifetime = 20
-        self.size = random.randint(2, 4)
+        self.lifetime = lifetime
+        self.original_lifetime = lifetime
+        self.size = size
+        
+        # Initialize random velocity if not provided
+        if velocity is None:
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(1, 3)
+            self.velocity = (math.cos(angle) * speed, math.sin(angle) * speed)
+        else:
+            self.velocity = velocity
+            
+    def update(self):
+        # Move the particle
+        self.x += self.velocity[0]
+        self.y += self.velocity[1]
+        
+        # Decrease lifetime
+        self.lifetime -= 1
+        
+        # Optionally adjust size based on lifetime
+        self.size = max(1, self.size * (self.lifetime / self.original_lifetime))
+        
+    def render(self, surface):
+        # Adjust transparency based on lifetime
+        alpha = int(255 * (self.lifetime / self.original_lifetime))
+        
+        # Draw the particle
+        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), int(self.size))
 
+class SnowParticle:
+    def __init__(self, x, y, speed=1):
+        self.x = x
+        self.y = y
+        self.speed = speed
+        self.lifetime = random.randint(100, 300)
+        self.original_lifetime = self.lifetime
+        self.size = random.randint(1, 3)
+        self.color = (255, 255, 255)
+        
+    def update(self):
+        # Move downward with slight side-to-side drift
+        self.y += self.speed
+        self.x += random.uniform(-0.5, 0.5)
+        
+        # Decrease lifetime
+        self.lifetime -= 1
+        
+    def render(self, surface):
+        # Adjust transparency based on lifetime
+        alpha = int(255 * (self.lifetime / self.original_lifetime))
+        
+        # Draw the snow particle
+        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.size)
+
+class Button:
+    def __init__(self, x, y, width, height, text, action, color=BUTTON_COLOR, hover_color=BUTTON_HOVER_COLOR):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.action = action
+        self.is_hovered = False
+        self.color = color
+        self.hover_color = hover_color
+        
+    def render(self, surface):
+        # Draw button background with rounded corners
+        current_color = self.hover_color if self.is_hovered else self.color
+        draw_rounded_rectangle(surface, current_color, self.rect, 8)
+        
+        # Draw button text
+        font = pygame.font.Font(None, 28)
+        text_surface = font.render(self.text, True, BUTTON_TEXT_COLOR)
+        text_rect = text_surface.get_rect(center=self.rect.center)
+        surface.blit(text_surface, text_rect)
+        
+        # Add a slight shadow effect for non-hovered buttons
+        if not self.is_hovered:
+            shadow_rect = pygame.Rect(self.rect.x, self.rect.y + self.rect.height, self.rect.width, 2)
+            shadow_color = (80, 80, 80)  # Dark gray shadow
+            draw_rounded_rectangle(surface, shadow_color, shadow_rect, 2)
+        
+    def update_scroll_position(self, scroll_offset):
+        self.rect.y = self.original_y - scroll_offset
+
+class Portal:
+    def __init__(self, start_pos, end_pos):
+        self.start_pos = start_pos  # (x, y) in grid coordinates
+        self.end_pos = end_pos      # (x, y) in grid coordinates
+        self.radius = GRID_SIZE // 2
+        self.lifetime = 200         # Duration in frames
+        self.start_color = (0, 191, 255)  # Deep sky blue
+        self.end_color = (138, 43, 226)   # Blue violet
+        self.color = self.start_color  # For backward compatibility
+        self.particles = []
+        self.particle_timer = 0
+        
+        # Create initial particles for both portals
+        self.create_particles(self.start_pos, self.start_color, 20)
+        self.create_particles(self.end_pos, self.end_color, 20)
+    
+    def create_particles(self, position, color, count):
+        x = position[0] * GRID_SIZE + GRID_SIZE // 2
+        y = position[1] * GRID_SIZE + GRID_SIZE // 2
+        
+        for _ in range(count):
+            # Create particles in a circular pattern
+            angle = random.uniform(0, 2 * math.pi)
+            distance = random.uniform(0, self.radius)
+            px = x + math.cos(angle) * distance
+            py = y + math.sin(angle) * distance
+            
+            # Random velocity toward center
+            vx = (x - px) * random.uniform(0.01, 0.03)
+            vy = (y - py) * random.uniform(0.01, 0.03)
+            
+            particle = PortalParticle(px, py, color, (vx, vy))
+            self.particles.append(particle)
+    
+    def update(self):
+        # Update lifetime
+        self.lifetime -= 1
+        
+        # Generate new particles periodically
+        self.particle_timer += 1
+        if self.particle_timer >= 5:  # Every 5 frames
+            self.particle_timer = 0
+            self.create_particles(self.start_pos, self.start_color, 2)
+            self.create_particles(self.end_pos, self.end_color, 2)
+        
+        # Update existing particles
+        for particle in self.particles[:]:
+            particle.update()
+            if particle.lifetime <= 0:
+                self.particles.remove(particle)
+    
+    def render(self, surface):
+        # Draw portals
+        start_x = self.start_pos[0] * GRID_SIZE + GRID_SIZE // 2
+        start_y = self.start_pos[1] * GRID_SIZE + GRID_SIZE // 2
+        end_x = self.end_pos[0] * GRID_SIZE + GRID_SIZE // 2
+        end_y = self.end_pos[1] * GRID_SIZE + GRID_SIZE // 2
+        
+        # Draw portal rings with pulsating effect
+        pulse = (math.sin(pygame.time.get_ticks() * 0.01) + 1) * 0.2 + 0.8
+        
+        # Ensure color values are valid integers
+        start_pulse_color = tuple(max(0, min(255, int(c * pulse))) for c in self.start_color)
+        end_pulse_color = tuple(max(0, min(255, int(c * pulse))) for c in self.end_color)
+        
+        pygame.draw.circle(surface, start_pulse_color, (start_x, start_y), self.radius)
+        pygame.draw.circle(surface, end_pulse_color, (end_x, end_y), self.radius)
+        
+        # Draw portal centers
+        pygame.draw.circle(surface, (255, 255, 255), (start_x, start_y), self.radius // 3)
+        pygame.draw.circle(surface, (255, 255, 255), (end_x, end_y), self.radius // 3)
+        
+        # Draw particles
+        for particle in self.particles:
+            particle.render(surface)
+
+class PortalParticle:
+    def __init__(self, x, y, color, velocity):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.velocity = velocity
+        self.lifetime = 20
+        self.size = random.uniform(1, 3)
+    
     def update(self):
         self.x += self.velocity[0]
         self.y += self.velocity[1]
         self.lifetime -= 1
         self.size = max(0, self.size - 0.1)
-
+    
     def render(self, surface):
-       # Calculate alpha as a percentage of lifetime but clamp it within the valid range
-        alpha = max(0, min(255, int(255 * (self.lifetime / 20))))
-        # Create a temporary surface for the particle with alpha
-        particle_surface = pygame.Surface((int(self.size * 2 + 1), int(self.size * 2 + 1)), pygame.SRCALPHA)   
-       # Fix: Clamp color values within the valid range
-        color_with_alpha = (
-            max(0, min(255, int(self.color[0]))),
-            max(0, min(255, int(self.color[1]))),
-            max(0, min(255, int(self.color[2]))),
-            alpha
-        )
-        #print(f"Rendering particle with color: {color_with_alpha}")
-        # Draw the circle with the properly formatted color
-        pygame.draw.circle(particle_surface, color_with_alpha, 
-                         (int(self.size + 1), int(self.size + 1)), int(self.size))
-        # Blit the temporary surface onto the main surface
-        surface.blit(particle_surface, 
-                    (int(self.x - self.size), int(self.y - self.size)))
-       
-class Button:
-    def __init__(self, x, y, width, height, text, action, value=None):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.text = text
-        self.action = action
-        self.value = value
-        self.is_hovered = False
-
-    def render(self, surface):
-        color = BUTTON_HOVER_COLOR if self.is_hovered else BUTTON_COLOR
-        pygame.draw.rect(surface, color, self.rect, border_radius=8)
-        font = pygame.font.Font(None, 36)
-        text_surface = font.render(self.text, True, BUTTON_TEXT_COLOR)
-        text_rect = text_surface.get_rect(center=self.rect.center)
-        surface.blit(text_surface, text_rect)
-
-class SnowParticle:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.velocity = (random.uniform(-1, 1), random.uniform(1, 3))
-        self.lifetime = 30
-        self.size = random.randint(2, 4)
-        self.color = (200, 200, 200)  # Light grey color for snow to be visible on white background
-
-    def update(self):
-        self.x += self.velocity[0]
-        self.y += self.velocity[1]
-        self.lifetime -= 1
-        self.size = max(0, self.size - 0.05)
-
-    def render(self, surface):
-        alpha = int(255 * (self.lifetime / 30))
+        alpha = int(255 * (self.lifetime / 20))
         particle_surface = pygame.Surface((int(self.size * 2 + 1), int(self.size * 2 + 1)), pygame.SRCALPHA)
-        pygame.draw.circle(particle_surface, (*self.color, alpha), 
-                         (int(self.size + 1), int(self.size + 1)), int(self.size))
-        surface.blit(particle_surface, 
-                    (int(self.x - self.size), int(self.y - self.size)))
+        pygame.draw.circle(particle_surface, (*self.color, alpha), (int(self.size + 1), int(self.size + 1)), int(self.size))
+        surface.blit(particle_surface, (int(self.x - self.size), int(self.y - self.size)))
 
 class Game:
     def __init__(self):
         global SOUND_ENABLED
-        self.snake = Snake()
+        self.snake = Snake(self)
         self.food = Food(self)
         self.particles = []
+        self.snow_particles = []
+        self.portals = []
+        self.maze_walls = set()
         self.high_score = 0
-        self.state = 'menu'
-        self.base_speed = 10
-        self.speed_multiplier = 1.0
-        self.game_speed = self.base_speed
+        self.game_over = False
+        self.menu_state = 'menu'  # 'menu', 'settings', 'playing', 'game_over'
+        self.current_menu = 'menu'  # 'menu', 'settings'
+        self.buttons = []
+        self.settings_buttons = []
+        self.scroll_offset = 0
+        self.max_scroll = 0
+        
+        # Game speed settings
+        self.current_speed_index = 1  # 0=Slow, 1=Normal, 2=Fast
+        self.speed_levels = [5, 10, 15]  # FPS values for different speeds
+        
+        # Load game over image if available
+        try:
+            self.game_over_img = pygame.image.load('assets/game_over.png')
+            self.game_over_img = pygame.transform.scale(self.game_over_img, (300, 300))
+        except:
+            self.game_over_img = None
+
+        # Setup menu buttons
         self.setup_menu()
 
-        # Load game over image
-        try:
-            self.game_over_img = pygame.image.load('assets/game_over.png')
-            self.game_over_img = pygame.transform.scale(self.game_over_img, (300, 300))
-        except:
-            self.game_over_img = None
+        # Sound setup
+        self.sound_channels = {}
+        if SOUND_ENABLED:
+            self.initialize_sound_channels()
 
+    def initialize_sound_channels(self):
         # Initialize sound channels
-        if SOUND_ENABLED:
-            try:
-                self.background_channel = pygame.mixer.Channel(0)
-                self.effect_channel = pygame.mixer.Channel(1)
-                self.evolution_channel = pygame.mixer.Channel(2)
-                
-                # Set volumes
-                self.background_channel.set_volume(0.5)
-                self.effect_channel.set_volume(1.0)
-                self.evolution_channel.set_volume(1.0)
-                
-                # Play menu sound initially
-                if 'menu' in SOUNDS:
-                    self.effect_channel.play(SOUNDS['menu'])
-            except Exception as e:
-                print(f"Error initializing sound channels: {e}")
-                SOUND_ENABLED = False
+        self.sound_channels['background'] = pygame.mixer.Channel(0)
+        self.sound_channels['effect'] = pygame.mixer.Channel(1)
+        self.sound_channels['evolution'] = pygame.mixer.Channel(2)
+        
+        # Set background music to loop
+        if 'background' in SOUNDS:
+            self.sound_channels['background'].play(SOUNDS['background'], loops=-1)
+            self.sound_channels['background'].set_volume(0.5)
 
+    def play_sound(self, sound_name):
+        if SOUND_ENABLED and sound_name in SOUNDS:
+            if sound_name == 'background':
+                self.sound_channels['background'].play(SOUNDS[sound_name], loops=-1)
+                self.sound_channels['background'].set_volume(0.5)
+            else:
+                self.sound_channels['effect'].play(SOUNDS[sound_name])
+
+    def start_game(self):
+        self.snake = Snake(self)
+        self.food = Food(self)
+        self.particles = []
         self.snow_particles = []
-        self.ice_cream_active = False
-        self.ice_cream_timer = 0
-        self.ice_cream_duration = 300  # 5 seconds at 60 FPS
-        self.original_speed = 10  # Store original speed
-        self.slowed_speed = 5     # Slowed speed when ice cream is active
-        self.game_speed = self.original_speed  # Initialize game speed
-
-    def handle_collision(self, position, fruit_type):
-        if fruit_type == 'ice_cream':
-            self.ice_cream_active = True
-            self.ice_cream_timer = self.ice_cream_duration
-            self.game_speed = self.slowed_speed  # Reduce game speed
-            self.snake.speed = self.slowed_speed  # Reduce snake speed
-            if SOUND_ENABLED and 'ice' in SOUNDS:
-                self.effect_channel.play(SOUNDS['ice'])
-            # Create snow particles at the ice cream location
-            for _ in range(20):
-                self.snow_particles.append(SnowParticle(
-                    position[0] * GRID_SIZE + GRID_SIZE // 2,
-                    position[1] * GRID_SIZE + GRID_SIZE // 2
-                ))
-        self.snake.grow(FRUITS[fruit_type]['points'])
-        self.snake.score += FRUITS[fruit_type]['points']
-        # Create particles for the eaten fruit
-        if fruit_type in PARTICLE_COLORS:
-            for _ in range(10):
-                particle_color = random.choice(PARTICLE_COLORS[fruit_type])
-                x = position[0] * GRID_SIZE + GRID_SIZE // 2
-                y = position[1] * GRID_SIZE + GRID_SIZE // 2
-                self.particles.append(Particle(x, y, particle_color))
+        self.portals = []
+        self.maze_walls = set()
+        self.game_over = False
+        self.menu_state = 'playing'
         
-        # Load game over image
-        try:
-            self.game_over_img = pygame.image.load('assets/game_over.png')
-            self.game_over_img = pygame.transform.scale(self.game_over_img, (300, 300))
-        except:
-            #print("Could not load game over image")
-            self.game_over_img = None
-        
-        # Initialize sound system with debug info
-        print("\n=== Game Sound System Initialization ===")
-        if SOUND_ENABLED:
-            try:
-                # Set up three separate channels
-                self.background_channel = pygame.mixer.Channel(0)
-                self.effect_channel = pygame.mixer.Channel(1)
-                self.evolution_channel = pygame.mixer.Channel(2)
-                
-                # Set and verify volumes
-                self.background_channel.set_volume(0.5)
-                self.effect_channel.set_volume(1.0)
-                self.evolution_channel.set_volume(1.0)
-                
-                print("Sound channels initialized:")
-                print(f"Background channel volume: {self.background_channel.get_volume()}")
-                print(f"Effect channel volume: {self.effect_channel.get_volume()}")
-                print(f"Evolution channel volume: {self.evolution_channel.get_volume()}")
-                
-                # Only play menu sound initially since we start in menu state
-                if 'menu' in SOUNDS:
-                    self.effect_channel.play(SOUNDS['menu'])
-                    print("Menu sound started successfully")
-            except Exception as e:
-                print(f"Error initializing game sound system: {type(e).__name__}, {str(e)}")
-                SOUND_ENABLED = False
+        # Initialize maze if maze mode is enabled
+        if GAME_SETTINGS['maze_mode']:
+            self.generate_maze()
+            self.maze_update_timer = FPS * 15  # Regenerate maze every 15 seconds
+            
+        # Initialize portals if portal mode is enabled
+        if GAME_SETTINGS['portal_mode']:
+            self.generate_portals()
 
-        print(f"Game sound enabled: {SOUND_ENABLED}")
-        if SOUND_ENABLED:
-            print(f"Available game sounds: {list(SOUNDS.keys())}")
+        # Play game start sound
+        self.play_sound('start')
+
+    def show_settings(self):
+        # Change game state to settings
+        self.menu_state = 'settings'
+        self.current_menu = 'settings'
+        
+        # Play sound if enabled
+        self.play_sound('menu')
+        
+        print("Settings menu opened")
+
+    def toggle_setting(self, setting):
+        # Toggle the setting value
+        GAME_SETTINGS[setting] = not GAME_SETTINGS[setting]
+        
+        # Format the setting name for display
+        display_name = ' '.join(setting.split('_')).title()
+        
+        # Find and update the button text for this setting
+        for button in self.settings_buttons:
+            if button.text.startswith(display_name):
+                state = "On" if GAME_SETTINGS[setting] else "Off"
+                button.text = f"{display_name}: {state}"
+                print(f"Setting '{setting}' changed to {GAME_SETTINGS[setting]}")
+                break
+                
+        # Play sound if enabled
+        self.play_sound('menu')
+
+    def cycle_speed(self):
+        # Cycle through speed levels
+        self.current_speed_index = (self.current_speed_index + 1) % len(self.speed_levels)
+        
+        # Update button text
+        speed_names = ['Slow', 'Normal', 'Fast']
+        for button in self.buttons:
+            if button.text.startswith("Speed:"):
+                button.text = f"Speed: {speed_names[self.current_speed_index]}"
+                break
+                
+        # Play sound if enabled
+        self.play_sound('menu')
 
     def setup_menu(self):
+        # Button dimensions and positioning
+        button_width = 250
+        button_height = 50
+        button_spacing = 50
         center_x = WINDOW_SIZE // 2
-        self.buttons = {
-            'menu': [
-                Button(center_x - 100, 250, 200, 50, "Start Game", lambda: self.start_game()),
-                Button(center_x - 100, 320, 200, 50, "Very Slow", lambda: self.set_speed(0.5), 0.5),
-                Button(center_x - 100, 380, 200, 50, "Normal", lambda: self.set_speed(1.0), 1.0),
-                Button(center_x - 100, 440, 200, 50, "Fast", lambda: self.set_speed(1.5), 1.5)
-            ],
-            'game_over': [
-                Button(center_x - 100, 250, 200, 50, "Play Again", lambda: self.start_game()),
-                Button(center_x - 100, 320, 200, 50, "Menu", lambda: self.show_menu())
-            ]
-        }
+        start_y = 200
+        
+        # Main menu buttons
+        self.buttons = [
+            Button(center_x - button_width // 2, start_y, button_width, button_height,
+                  "Start Game", lambda: self.start_game()),
+            Button(center_x - button_width // 2, start_y + button_spacing, button_width, button_height,
+                  "Settings", lambda: self.show_settings()),
+            Button(center_x - button_width // 2, start_y + button_spacing * 2, button_width, button_height,
+                  f"Speed: {['Slow', 'Normal', 'Fast'][self.current_speed_index]}", lambda: self.cycle_speed())
+        ]
+
+        # Settings buttons in a vertical list
+        settings_start_y = 130
+        self.settings_buttons = []
+        
+        # List of settings to display
+        settings_to_display = [
+            'reverse_controls',
+            'ghost_mode',
+            'maze_mode',
+            'rainbow_snake',
+            'big_food',
+            'portal_mode',
+            'wrap_around',
+            'double_food',
+            'infinite_length',
+            'speed_increase'
+        ]
+        
+        # Create a button for each setting
+        for i, setting in enumerate(settings_to_display):
+            # Format the setting name for display
+            display_name = ' '.join(setting.split('_')).title()
+            
+            # Determine if setting is enabled
+            state = "On" if GAME_SETTINGS[setting] else "Off"
+            
+            # Create button with toggle function
+            button = Button(
+                center_x - button_width // 2,
+                settings_start_y + i * button_spacing,
+                button_width,
+                button_height,
+                f"{display_name}: {state}",
+                lambda s=setting: self.toggle_setting(s),
+                color=(50, 50, 50),
+                hover_color=(80, 80, 80)
+            )
+            self.settings_buttons.append(button)
+
+        # Add back button to settings at the bottom
+        self.settings_buttons.append(
+            Button(
+                center_x - button_width // 2,
+                settings_start_y + len(settings_to_display) * button_spacing,
+                button_width,
+                button_height,
+                "Back to Menu",
+                lambda: self.show_menu(),
+                color=(70, 70, 100),
+                hover_color=(90, 90, 120)
+            )
+        )
 
     def set_speed(self, multiplier):
         self.speed_multiplier = multiplier
         self.game_speed = int(self.base_speed * multiplier)
 
-    def start_game(self):
-        self.snake = Snake()
-        self.food = Food(self)
-        self.particles = []
-        self.state = 'playing'
-        if SOUND_ENABLED:
-            # Stop menu sound
-            self.effect_channel.stop()
-            # Start background music
-            if 'background' in SOUNDS:
-                self.background_channel.play(SOUNDS['background'], -1)
-
     def show_menu(self):
-        self.state = 'menu'
+        # Change game state to menu
+        self.menu_state = 'menu'
+        
+        # Update speed button text
+        speed_names = ['Slow', 'Normal', 'Fast']
+        for button in self.buttons:
+            if button.text.startswith("Speed:"):
+                button.text = f"Speed: {speed_names[self.current_speed_index]}"
+        
+        # Play sound if enabled
         if SOUND_ENABLED:
             # Stop all sounds first
-            self.background_channel.stop()
-            self.effect_channel.stop()
-            self.evolution_channel.stop()
+            self.sound_channels['background'].stop()
+            self.sound_channels['effect'].stop()
+            self.sound_channels['evolution'].stop()
             # Play menu sound if available
             if 'menu' in SOUNDS:
-                self.effect_channel.play(SOUNDS['menu'])
+                self.sound_channels['effect'].play(SOUNDS['menu'])
+        
+        print("Main menu opened")
 
     def update(self):
-        if self.state == 'playing':
-            # Update food (for poison timer)
-            self.food.update()
+        # In menu state, no game update needed
+        if self.menu_state != 'playing':
+            return
 
-            # Update particles
-            self.particles = [p for p in self.particles if p.lifetime > 0]
-            for particle in self.particles:
-                particle.update()
+        # Handle reverse controls
+        key_mapping = {
+            pygame.K_UP: (0, -1),
+            pygame.K_DOWN: (0, 1),
+            pygame.K_LEFT: (-1, 0),
+            pygame.K_RIGHT: (1, 0)
+        }
+        
+        if GAME_SETTINGS['reverse_controls']:
+            key_mapping = {
+                pygame.K_UP: (0, 1),     # Up key moves down
+                pygame.K_DOWN: (0, -1),  # Down key moves up
+                pygame.K_LEFT: (1, 0),   # Left key moves right
+                pygame.K_RIGHT: (-1, 0)  # Right key moves left
+            }
+            
+        # Update the snake
+        if not self.snake.update():
+            self.game_over = True
+            self.play_sound('death')
+            return
+            
+        # Check for collisions (both with portals and food)
+        self.check_collisions()
+            
+        # Update particles
+        self.update_particles()
+            
+        # Handle maze regeneration
+        if GAME_SETTINGS['maze_mode']:
+            if hasattr(self, 'maze_update_timer'):
+                self.maze_update_timer -= 1
+                if self.maze_update_timer <= 0:
+                    self.regenerate_maze()
+                    self.maze_update_timer = FPS * 15  # Regenerate maze every 15 seconds
 
-            # Store previous evolution stage
-            previous_stage = self.snake.evolution_stage
-
-            # Update snake
-            keys = pygame.key.get_pressed()
-            direction = self.snake.direction
-            if keys[pygame.K_UP] and direction != (0, 1):
-                self.snake.direction = (0, -1)
-            elif keys[pygame.K_DOWN] and direction != (0, -1):
-                self.snake.direction = (0, 1)
-            elif keys[pygame.K_LEFT] and direction != (1, 0):
-                self.snake.direction = (-1, 0)
-            elif keys[pygame.K_RIGHT] and direction != (-1, 0):
-                self.snake.direction = (1, 0)
-
-            if not self.snake.update():
-                # Stop background music immediately
-                if SOUND_ENABLED:
-                    self.background_channel.stop()
-                
-                # Set game over state immediately to show the image
-                self.state = 'game_over'
-                if self.snake.score > self.high_score:
-                    self.high_score = self.snake.score
-                
-                # Display game over image for 2 seconds
-                if self.game_over_img:
-                    screen.blit(self.game_over_img, 
-                              (WINDOW_SIZE//2 - 150, WINDOW_SIZE//2 - 150))
-                    pygame.display.flip()
-                    pygame.time.wait(2000)
-                
-                # Play death sound and wait for it to finish
-                if SOUND_ENABLED and 'die' in SOUNDS:
-                    self.effect_channel.play(SOUNDS['die'])
-                    pygame.time.wait(int(SOUNDS['die'].get_length() * 1000))
-                
-                # Play menu sound after death sound
-                if SOUND_ENABLED and 'menu' in SOUNDS:
-                    self.effect_channel.play(SOUNDS['menu'])
-                return
-
-            # Check if snake evolved
-            if self.snake.check_evolution():  # Use the new check_evolution method
-                if SOUND_ENABLED:
-                    try:
-                        if self.evolution_channel.get_busy():
-                            self.evolution_channel.stop()
-                        
-                        if 'evolve' in SOUNDS:
-                            evolve_sound = SOUNDS['evolve']
-                            evolve_sound.set_volume(1.0)
-                            self.evolution_channel.set_volume(1.0)
-                            self.evolution_channel.play(evolve_sound)
-                            
-                            if self.background_channel.get_busy():
-                                self.background_channel.set_volume(0.2)
-                                restore_time = int(evolve_sound.get_length() * 1000)
-                                pygame.time.set_timer(pygame.USEREVENT + 1, restore_time)
-                    except Exception:
-                        pass
-                
-                self.create_evolution_particles()
-                
-                # Spawn ice cream if evolved to dragon
-                if self.snake.evolution_stage >= 45:
-                    self.spawn_ice_cream()
-
-            # Update ice cream effect
-            if self.ice_cream_active:
-                self.ice_cream_timer -= 1
-                if self.ice_cream_timer <= 0:
-                    self.ice_cream_active = False
-                    self.game_speed = self.original_speed
-                    self.snake.speed = self.original_speed
-                    # Clear all snow particles when effect ends
-                    self.snow_particles.clear()
-                else:
-                    # Create snow particles around the snake's body
-                    for pos in self.snake.positions:
-                        x = pos[0] * GRID_SIZE + GRID_SIZE // 2
-                        y = pos[1] * GRID_SIZE + GRID_SIZE // 2
-                        # Create snow particles in a circular pattern around each segment
-                        for angle in range(0, 360, 45):  # Create 8 particles per segment
-                            rad = math.radians(angle)
-                            offset_x = math.cos(rad) * GRID_SIZE
-                            offset_y = math.sin(rad) * GRID_SIZE
-                            self.snow_particles.append(SnowParticle(
-                                x + offset_x,
-                                y + offset_y
-                            ))
-
-            # Update snow particles
-            for particle in self.snow_particles[:]:
-                particle.update()
-                if particle.lifetime <= 0:
-                    self.snow_particles.remove(particle)
-
-            # Check for food collision
-            head_pos = self.snake.get_head_position()
-            for i, (food_pos, fruit_type) in enumerate(self.food.positions):
-                if head_pos == food_pos:
-                    if SOUND_ENABLED:
-                        if fruit_type == 'ice_cream':
-                            self.effect_channel.play(SOUNDS['ice'])
-                        else:
-                            self.effect_channel.play(SOUNDS['eat'])
-                    
-                    # Handle ice cream effect
-                    if fruit_type == 'ice_cream':
-                        self.ice_cream_active = True
-                        self.ice_cream_timer = self.ice_cream_duration
-                        self.game_speed = self.slowed_speed
-                        self.snake.speed = self.slowed_speed
-                        # Create initial snow particles at the ice cream location
-                        for _ in range(20):
-                            self.snow_particles.append(SnowParticle(
-                                food_pos[0] * GRID_SIZE + GRID_SIZE // 2,
-                                food_pos[1] * GRID_SIZE + GRID_SIZE // 2
-                            ))
+    def create_particles(self, position=None, count=10, color=None):
+        # If position not specified, use snake head position
+        if position is None:
+            position = self.snake.get_head_position()
+            
+        x = position[0] * GRID_SIZE + GRID_SIZE // 2
+        y = position[1] * GRID_SIZE + GRID_SIZE // 2
+        
+        # If color not specified, use food color based on recently eaten food
+        if color is None:
+            for i, (food_pos, food_type) in enumerate(self.food.positions):
+                if position == food_pos:
+                    if food_type in PARTICLE_COLORS:
+                        color = random.choice(PARTICLE_COLORS[food_type])
                     else:
-                        # If eating non-ice cream food, clear ice cream effect
-                        self.ice_cream_active = False
-                        self.game_speed = self.original_speed
-                        self.snake.speed = self.original_speed
-                        self.snow_particles.clear()
-                    
-                    points = FRUITS[fruit_type]['points']
-                    
-                    # Handle poison differently
-                    if fruit_type == 'poison':
-                        self.snake.score = max(0, self.snake.score + points)
-                        if self.snake.length > 3:
-                            self.snake.length -= 1
-                            self.snake.positions.pop()
-                    else:
-                        self.snake.score += points
-                        self.snake.grow(points)
-                    
-                    # Remove eaten food
-                    self.food.positions.pop(i)
-                    
-                    # Spawn new food if no regular food exists
-                    if not any(f[1] != 'poison' for f in self.food.positions):
-                        self.food.add_food('apple')
+                        color = FOOD_COLOR
                     break
-
-    def create_particles(self):
-        # Find the last eaten food position
-        for food_pos, fruit_type in self.food.positions:
-            if food_pos == self.snake.get_head_position():
-                x = food_pos[0] * GRID_SIZE + GRID_SIZE // 2
-                y = food_pos[1] * GRID_SIZE + GRID_SIZE // 2
-                colors = PARTICLE_COLORS[fruit_type]
-                for _ in range(10):
-                    color = random.choice(colors)
-                    self.particles.append(Particle(x, y, color))
-                break
+            else:
+                # Default to food color if no match found
+                color = FOOD_COLOR
+        
+        # Ensure count is an integer
+        if not isinstance(count, int):
+            count = 10  # Default to 10 particles
+        
+        # Create particles
+        for _ in range(count):
+            self.particles.append(Particle(x, y, color))
 
     def create_flame_particles(self, x, y, base_color, count, size_range, speed_range):
         for _ in range(count):
@@ -1194,81 +1182,458 @@ class Game:
             self.food.add_food('ice_cream')
 
     def render(self, screen):
-        if self.state == 'menu':
+        if self.menu_state == 'menu':
             screen.fill(MENU_BG_COLOR)
             font = pygame.font.Font(None, 74)
             title = font.render("Snake Game", True, SCORE_COLOR)
             screen.blit(title, (WINDOW_SIZE//2 - title.get_width()//2, 100))
-            for button in self.buttons['menu']:
+            for button in self.buttons:
                 button.render(screen)
-
-        elif self.state == 'playing':
-            draw_gradient_background()
-            self.snake.render(screen)
+        elif self.menu_state == 'settings':
+            screen.fill(MENU_BG_COLOR)
+            font = pygame.font.Font(None, 74)
+            title = font.render("Settings", True, SCORE_COLOR)
+            screen.blit(title, (WINDOW_SIZE//2 - title.get_width()//2, 50))
+            for button in self.settings_buttons:
+                button.render(screen)
+        elif self.menu_state == 'playing':
+            # Draw background
+            draw_gradient_background(screen)
+            
+            # Draw maze walls if enabled
+            if GAME_SETTINGS['maze_mode'] and self.maze_walls:
+                for wall in self.maze_walls:
+                    x = wall[0] * GRID_SIZE
+                    y = wall[1] * GRID_SIZE
+                    pygame.draw.rect(screen, GRAY, (x, y, GRID_SIZE, GRID_SIZE))
+            
+            # Draw portals if enabled
+            if GAME_SETTINGS['portal_mode']:
+                for portal in self.portals:
+                    portal.render(screen)
+            
+            # Draw the food
             self.food.render(screen)
+            
+            # Draw the snake
+            self.snake.render(screen)
+            
+            # Draw particles
             for particle in self.particles:
                 particle.render(screen)
-            
-            # Draw scores
-            font = pygame.font.Font(None, 36)
-            score_text = f'Score: {self.snake.score}'
-            high_score_text = f'Best: {self.high_score}'
-            score_surface = font.render(score_text, True, SCORE_COLOR)
-            high_score_surface = font.render(high_score_text, True, SCORE_COLOR)
-            screen.blit(score_surface, (10, 10))
-            screen.blit(high_score_surface, (WINDOW_SIZE - high_score_surface.get_width() - 10, 10))
-
-            # Render snow particles
+                
+            # Draw snow particles
             for particle in self.snow_particles:
                 particle.render(screen)
-
-        elif self.state == 'game_over':
+            
+            # Draw score
+            font = pygame.font.Font(None, 36)
+            score_text = font.render(f"Score: {self.snake.score}", True, SCORE_COLOR)
+            high_score_text = font.render(f"High Score: {self.high_score}", True, SCORE_COLOR)
+            screen.blit(score_text, (10, 10))
+            screen.blit(high_score_text, (10, 50))
+            
+            # Draw game over screen if game is over
+            if self.game_over:
+                # Semi-transparent overlay
+                overlay = pygame.Surface((WINDOW_SIZE, WINDOW_SIZE), pygame.SRCALPHA)
+                overlay.fill((0, 0, 0, 128))
+                screen.blit(overlay, (0, 0))
+                
+                # Game over text
+                font = pygame.font.Font(None, 74)
+                game_over_text = font.render("Game Over", True, WHITE)
+                screen.blit(game_over_text, (WINDOW_SIZE//2 - game_over_text.get_width()//2, 200))
+                
+                # Score text
+                font = pygame.font.Font(None, 48)
+                final_score = font.render(f"Score: {self.snake.score}", True, WHITE)
+                screen.blit(final_score, (WINDOW_SIZE//2 - final_score.get_width()//2, 300))
+                
+                # Restart instructions
+                font = pygame.font.Font(None, 36)
+                restart_text = font.render("Press ESC to return to menu", True, WHITE)
+                screen.blit(restart_text, (WINDOW_SIZE//2 - restart_text.get_width()//2, 400))
+                
+        elif self.menu_state == 'game_over':
             screen.fill(MENU_BG_COLOR)
             if self.game_over_img:
-                img_rect = self.game_over_img.get_rect(center=(WINDOW_SIZE//2, 150))
-                screen.blit(self.game_over_img, img_rect)
+                screen.blit(self.game_over_img, (WINDOW_SIZE//2 - 150, 150))
+                
             font = pygame.font.Font(None, 74)
+            game_over_text = font.render("Game Over", True, SCORE_COLOR)
+            screen.blit(game_over_text, (WINDOW_SIZE//2 - game_over_text.get_width()//2, 100))
+            
+            font = pygame.font.Font(None, 48)
             score_text = font.render(f"Score: {self.snake.score}", True, SCORE_COLOR)
             screen.blit(score_text, (WINDOW_SIZE//2 - score_text.get_width()//2, 300))
-            for button in self.buttons['game_over']:
+            for button in self.buttons:
                 button.render(screen)
 
-def main():
-    game = Game()
-    running = True
-
-    while running:
-        mouse_pos = pygame.mouse.get_pos()
+    def generate_maze(self):
+        self.maze_walls = set()
+        if not GAME_SETTINGS['maze_mode']:
+            return
         
-        # Handle events
+        # Clear existing maze
+        self.maze_walls = set()
+        
+        # Generate random maze obstacles
+        obstacle_count = int(GRID_COUNT * GRID_COUNT * 0.05)  # 5% of grid cells
+        snake_positions = set(self.snake.positions)
+        food_positions = set(pos for pos, _ in self.food.positions)
+        forbidden_positions = snake_positions.union(food_positions)
+        
+        # Add buffer around snake head to prevent immediate collisions
+        head_pos = self.snake.get_head_position()
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                buffer_pos = ((head_pos[0] + dx) % GRID_COUNT, 
+                             (head_pos[1] + dy) % GRID_COUNT)
+                forbidden_positions.add(buffer_pos)
+        
+        # Generate wall positions
+        for _ in range(obstacle_count):
+            # Find valid wall position
+            for _ in range(100):  # Limit attempts to find valid position
+                wall_pos = (random.randint(0, GRID_COUNT-1), 
+                           random.randint(0, GRID_COUNT-1))
+                if wall_pos not in forbidden_positions and wall_pos not in self.maze_walls:
+                    self.maze_walls.add(wall_pos)
+                    forbidden_positions.add(wall_pos)
+                    break
+        
+        # Add some connected walls to make it more maze-like
+        for _ in range(obstacle_count // 2):
+            if not self.maze_walls:
+                break
+                
+            # Pick a random existing wall
+            wall = random.choice(tuple(self.maze_walls))
+            
+            # Try to extend it in a random direction
+            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            random.shuffle(directions)
+            
+            for dx, dy in directions:
+                new_wall = ((wall[0] + dx) % GRID_COUNT, 
+                           (wall[1] + dy) % GRID_COUNT)
+                if new_wall not in forbidden_positions and new_wall not in self.maze_walls:
+                    self.maze_walls.add(new_wall)
+                    forbidden_positions.add(new_wall)
+                    break
+    
+    def render_maze(self, surface):
+        if not GAME_SETTINGS['maze_mode'] or not self.maze_walls:
+            return
+            
+        for wall_pos in self.maze_walls:
+            x = wall_pos[0] * GRID_SIZE
+            y = wall_pos[1] * GRID_SIZE
+            
+            # Draw wall with texture
+            wall_color = (100, 100, 100)  # Dark gray
+            pygame.draw.rect(surface, wall_color, (x, y, GRID_SIZE, GRID_SIZE))
+            
+            # Add brick pattern
+            highlight_color = (120, 120, 120)  # Slightly lighter gray
+            shadow_color = (80, 80, 80)  # Slightly darker gray
+            
+            # Horizontal lines
+            for i in range(2):
+                line_y = y + (i+1) * GRID_SIZE // 3
+                pygame.draw.line(surface, shadow_color, (x, line_y), (x + GRID_SIZE, line_y))
+                pygame.draw.line(surface, highlight_color, (x, line_y + 1), (x + GRID_SIZE, line_y + 1))
+            
+            # Vertical lines - offset every other row to create a brick pattern
+            offset = (wall_pos[1] % 2) * (GRID_SIZE // 2)
+            for i in range(1):
+                line_x = x + offset + i * GRID_SIZE
+                if line_x < x + GRID_SIZE:
+                    pygame.draw.line(surface, shadow_color, (line_x, y), (line_x, y + GRID_SIZE))
+                    pygame.draw.line(surface, highlight_color, (line_x + 1, y), (line_x + 1, y + GRID_SIZE))
+
+    def update_portals(self):
+        # Only handle portals if portal mode is enabled
+        if not GAME_SETTINGS['portal_mode']:
+            self.portals = []  # Clear portals if mode is disabled
+            return
+            
+        # Update existing portals
+        for portal in self.portals:
+            portal.update()
+            if portal.lifetime <= 0:
+                self.portals.remove(portal)
+        
+        # Spawn new portals periodically
+        self.portal_spawn_timer += 1
+        if self.portal_spawn_timer >= self.portal_spawn_interval and len(self.portals) < 2:
+            self.portal_spawn_timer = 0
+            self.create_portal()
+        
+        # Check if snake head is entering a portal
+        if self.portals:
+            self.check_portal_collision()
+    
+    def create_portal(self):
+        # Find valid positions for portal entrance and exit
+        available_positions = []
+        
+        # Positions that are not valid for portals
+        forbidden_positions = set(self.snake.positions)
+        for food_pos, _ in self.food.positions:
+            forbidden_positions.add(food_pos)
+        for portal in self.portals:
+            forbidden_positions.add(portal.start_pos)
+            forbidden_positions.add(portal.end_pos)
+        for wall_pos in self.maze_walls:
+            forbidden_positions.add(wall_pos)
+        
+        # Collect all valid positions
+        for x in range(GRID_COUNT):
+            for y in range(GRID_COUNT):
+                if (x, y) not in forbidden_positions:
+                    available_positions.append((x, y))
+        
+        # Ensure we have at least 2 positions available
+        if len(available_positions) < 2:
+            return
+        
+        # Pick two random positions for the portal
+        start_pos, end_pos = random.sample(available_positions, 2)
+        
+        # Create the portal
+        self.portals.append(Portal(start_pos, end_pos))
+        
+        # Play portal sound if available
+        if SOUND_ENABLED and 'portal' in SOUNDS:
+            self.sound_channels['effect'].play(SOUNDS['portal'])
+    
+    def check_portal_collision(self):
+        head_pos = self.snake.get_head_position()
+        
+        for portal in self.portals:
+            # Check if snake head is at portal entrance
+            if head_pos == portal.start_pos:
+                # Teleport to exit
+                self.snake.positions[0] = portal.end_pos
+                # Create particles at both entrance and exit
+                self.create_particles(portal.start_pos, portal.start_color, 15)
+                self.create_particles(portal.end_pos, portal.end_color, 15)
+                # Play portal sound if available
+                if SOUND_ENABLED and 'portal' in SOUNDS:
+                    self.sound_channels['effect'].play(SOUNDS['portal'])
+                break
+            # Check if snake head is at portal exit
+            elif head_pos == portal.end_pos:
+                # Teleport to entrance
+                self.snake.positions[0] = portal.start_pos
+                # Create particles at both entrance and exit
+                self.create_particles(portal.end_pos, portal.end_color, 15)
+                self.create_particles(portal.start_pos, portal.start_color, 15)
+                # Play portal sound if available
+                if SOUND_ENABLED and 'portal' in SOUNDS:
+                    self.sound_channels['effect'].play(SOUNDS['portal'])
+                break
+
+    def check_collisions(self):
+        # Check portal collisions
+        if self.portals and GAME_SETTINGS['portal_mode']:
+            head_pos = self.snake.get_head_position()
+            for portal in self.portals:
+                if head_pos == portal.start_pos:
+                    # Create particles at portal location
+                    self.create_particles(portal.start_pos, 15, portal.color)
+                    
+                    # Get new position after teleportation
+                    new_pos = portal.end_pos
+                    
+                    # Update snake head position
+                    self.snake.positions[0] = new_pos
+                    self.play_sound('portal')
+                    return True
+        
+        # Check food collisions
+        head_pos = self.snake.get_head_position()
+        to_remove = []
+        
+        for i, (position, fruit_type) in enumerate(self.food.positions):
+            if head_pos == position:
+                # Mark this food item for removal
+                to_remove.append(i)
+                
+                # Handle different fruit types
+                if fruit_type != 'poison':
+                    # Create particles based on fruit color
+                    fruit_color = FRUITS.get(fruit_type, {'color': FOOD_COLOR})['color']
+                    self.create_particles(position, 10, fruit_color)
+                    
+                    # Apple, orange, banana - normal growth
+                    if fruit_type in ['apple', 'orange', 'banana']:
+                        self.snake.growth_pending += 1
+                        self.snake.score += 1
+                    # Berry - extra growth
+                    elif fruit_type == 'berry':
+                        self.snake.growth_pending += 2
+                        self.snake.score += 3
+                    # Kiwi - speed increase
+                    elif fruit_type == 'kiwi':
+                        self.snake.speed_multiplier = 2.0
+                        self.snake.speed_effect_timer = FPS * 5  # 5 seconds
+                        self.snake.score += 2
+                    # Ice cream - snow effect
+                    elif fruit_type == 'ice_cream':
+                        # Add snow particles
+                        for _ in range(50):
+                            x = random.randint(0, SCREEN_WIDTH)
+                            y = random.randint(-50, 0)
+                            speed = random.uniform(1, 3)
+                            self.snow_particles.append(SnowParticle(x, y, speed))
+                        self.snake.score += 2
+                    
+                    self.play_sound('eat')
+                else:
+                    # Poison - negative effect
+                    self.snake.speed_reduction_timer = FPS * 3  # 3 seconds of reduced speed
+                    self.snake.score = max(0, self.snake.score - 2)  # Reduce score, minimum 0
+                    self.play_sound('poison')
+        
+        # Remove eaten food items
+        if to_remove:
+            # Remove in reverse order to avoid index shifts
+            for i in sorted(to_remove, reverse=True):
+                del self.food.positions[i]
+            
+            # Spawn new food
+            self.food.update()
+            
+        return False
+
+    def update_particles(self):
+        # Update regular particles
+        for particle in self.particles[:]:
+            particle.update()
+            if particle.lifetime <= 0:
+                self.particles.remove(particle)
+                
+        # Update snow particles
+        for particle in self.snow_particles[:]:
+            particle.update()
+            if particle.lifetime <= 0:
+                self.snow_particles.remove(particle)
+                
+        # Generate more snow particles if ice cream effect is active
+        if hasattr(self, 'ice_cream_active') and self.ice_cream_active:
+            # Add occasional snow particles from the top of the screen
+            if random.random() < 0.2:  # 20% chance each frame
+                x = random.randint(0, WINDOW_SIZE)
+                y = -5
+                speed = random.uniform(1, 3)
+                self.snow_particles.append(SnowParticle(x, y, speed))
+
+    def generate_portals(self):
+        # Only create portals if portal mode is enabled
+        if not GAME_SETTINGS['portal_mode']:
+            return
+            
+        # Clear existing portals
+        self.portals = []
+        
+        # Create a new portal
+        self.create_portal()
+
+def main():
+    global SCREEN_WIDTH, SCREEN_HEIGHT, WINDOW_SIZE
+    
+    # Initialize pygame and create window
+    pygame.init()
+    pygame.mixer.init()
+    
+    # Initialize sounds
+    initialize_sounds()
+    
+    # Create game screen
+    screen = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
+    pygame.display.set_caption('Snake Evolution')
+    
+    # Create clock for controlling game speed
+    clock = pygame.time.Clock()
+    
+    # Create game instance
+    game = Game()
+    
+    # Main game loop
+    while True:
+        # Process events
         for event in pygame.event.get():
+            # Check for quit
             if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pygame.quit()
+                sys.exit()
+                
+            # Handle mouse clicks for menu navigation
+            if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left click
-                    for button_list in game.buttons.values():
-                        for button in button_list:
-                            if button.rect.collidepoint(mouse_pos):
-                                # Stop any playing effect sounds before button action
-                                if SOUND_ENABLED and game.effect_channel.get_busy():
-                                    game.effect_channel.stop()
-                                button.action()
-            elif event.type == pygame.MOUSEMOTION:
-                for button_list in game.buttons.values():
-                    for button in button_list:
-                        button.is_hovered = button.rect.collidepoint(mouse_pos)
-            elif event.type == pygame.USEREVENT + 1:  # Background music volume restore
-                if game.background_channel.get_busy():
-                    game.background_channel.set_volume(0.5)
-                pygame.time.set_timer(pygame.USEREVENT + 1, 0)  # Disable the timer
-
+                    mouse_pos = pygame.mouse.get_pos()
+                    # Get the current state's buttons
+                    current_buttons = game.buttons if game.menu_state == 'menu' else game.settings_buttons
+                    for button in current_buttons:
+                        if button.rect.collidepoint(mouse_pos):
+                            # Call the button action
+                            button.action()
+                            print(f"Button clicked: {button.text}")
+            
+            # Update button hover state on mouse movement
+            if event.type == pygame.MOUSEMOTION:
+                mouse_pos = pygame.mouse.get_pos()
+                current_buttons = game.buttons if game.menu_state == 'menu' else game.settings_buttons
+                for button in current_buttons:
+                    button.is_hovered = button.rect.collidepoint(mouse_pos)
+                            
+            # Handle key presses for snake movement
+            if event.type == pygame.KEYDOWN and game.menu_state == 'playing':
+                # Handle control keys based on reverse_controls setting
+                direction = game.snake.direction
+                
+                # Normal controls
+                if not GAME_SETTINGS['reverse_controls']:
+                    if event.key == pygame.K_UP and direction != (0, 1):
+                        game.snake.direction = (0, -1)
+                    elif event.key == pygame.K_DOWN and direction != (0, -1):
+                        game.snake.direction = (0, 1)
+                    elif event.key == pygame.K_LEFT and direction != (1, 0):
+                        game.snake.direction = (-1, 0)
+                    elif event.key == pygame.K_RIGHT and direction != (-1, 0):
+                        game.snake.direction = (1, 0)
+                # Reverse controls
+                else:
+                    if event.key == pygame.K_UP and direction != (0, -1):
+                        game.snake.direction = (0, 1)  # Up key moves down
+                    elif event.key == pygame.K_DOWN and direction != (0, 1):
+                        game.snake.direction = (0, -1)  # Down key moves up
+                    elif event.key == pygame.K_LEFT and direction != (-1, 0):
+                        game.snake.direction = (1, 0)  # Left key moves right
+                    elif event.key == pygame.K_RIGHT and direction != (1, 0):
+                        game.snake.direction = (-1, 0)  # Right key moves left
+                
+                # Escape key to return to menu
+                if event.key == pygame.K_ESCAPE:
+                    game.show_menu()
+                        
+        # Update game state
         game.update()
+        
+        # Clear the screen
+        screen.fill(BLACK)
+        
+        # Render the game
         game.render(screen)
-        pygame.display.update()
-        clock.tick(game.game_speed)
-
-    pygame.quit()
-    sys.exit()
+        
+        # Update display
+        pygame.display.flip()
+        
+        # Control frame rate
+        clock.tick(FPS)
 
 if __name__ == '__main__':
     main()
